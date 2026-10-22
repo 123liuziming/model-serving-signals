@@ -1,0 +1,8 @@
+# Engine profile for RTP-LLM's frontend JSON /worker_status endpoint.
+# Requires --engine-scraper rtp-llm-worker-status --engine-metrics-path /worker_status.
+# These gauge names are derived by the scraper, not emitted by KMonitor.
+# See docs/rtp-llm.md for supported task phases, versions, and limitations.
+name: rtp-llm
+signals:
+  gen_ai.server.request.queued: rtp_llm_worker_status_requests_queued
+  gen_ai.server.request.running: rtp_llm_worker_status_requests_running

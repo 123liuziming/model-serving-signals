@@ -53,6 +53,10 @@ func NewHTTPScraper(host string, port int, path string) *HTTP {
 
 // Scrape fetches and parses the engine's metrics.
 func (h *HTTP) Scrape(ctx context.Context) (map[string]*dto.MetricFamily, error) {
+	return h.scrape(ctx, string(expfmt.NewFormat(expfmt.TypeTextPlain)), parse)
+}
+
+func (h *HTTP) scrape(ctx context.Context, accept string, decode func(io.Reader) (map[string]*dto.MetricFamily, error)) (map[string]*dto.MetricFamily, error) {
 	client := h.Client
 	if client == nil {
 		client = http.DefaultClient
@@ -61,7 +65,7 @@ func (h *HTTP) Scrape(ctx context.Context) (map[string]*dto.MetricFamily, error)
 	if err != nil {
 		return nil, fmt.Errorf("building scrape request for %s: %w", h.URL, err)
 	}
-	req.Header.Set("Accept", string(expfmt.NewFormat(expfmt.TypeTextPlain)))
+	req.Header.Set("Accept", accept)
 
 	resp, err := client.Do(req)
 	if err != nil {
@@ -75,10 +79,7 @@ func (h *HTTP) Scrape(ctx context.Context) (map[string]*dto.MetricFamily, error)
 		return nil, fmt.Errorf("scraping %s: unexpected status %s", h.URL, resp.Status)
 	}
 
-	// Parse decodes a Prometheus text exposition into metric families keyed by name.
-	// Engine metric names such as "vllm:e2e_request_latency_seconds" contain colons, which are
-	// legal under the legacy validation scheme, so UTF-8 validation is used to accept any engine's names.
-	return parse(resp.Body)
+	return decode(resp.Body)
 }
 
 // Parse decodes a Prometheus text exposition into metric families keyed by name.

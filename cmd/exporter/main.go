@@ -65,7 +65,11 @@ func main() {
 	ctx := ctrl.SetupSignalHandler()
 	ctx = log.IntoContext(ctx, ctrl.Log.WithName("metrics-exporter"))
 
-	engineScraper := translator.NewHTTPScraper(opts.EngineHost, opts.EngineMetricsPort, opts.EngineMetricsPath)
+	httpScraper := translator.NewHTTPScraper(opts.EngineHost, opts.EngineMetricsPort, opts.EngineMetricsPath)
+	var engineScraper translator.Scraper = httpScraper
+	if opts.EngineScraper == "rtp-llm-worker-status" {
+		engineScraper = &translator.RTPWorkerStatus{HTTP: *httpScraper}
+	}
 	collector, err := translator.New(ctx, engineScraper, engineProfile, opts.ScrapeTimeout,
 		translator.WithLogger(ctrl.Log.WithName("translator")),
 	)
@@ -85,7 +89,7 @@ func main() {
 		Gatherer:    registry,
 	}
 
-	setupLog.Info("Starting metrics exporter", "engineMetricsURL", engineScraper.URL)
+	setupLog.Info("Starting metrics exporter", "engineMetricsURL", httpScraper.URL, "scraper", opts.EngineScraper)
 	if err := metricsExporter.Start(ctx); err != nil {
 		setupLog.Error(err, "failed running metrics exporter")
 		os.Exit(1)

@@ -30,6 +30,7 @@ const (
 	DefaultEngineHost          = "localhost" // the exporter runs as a sidecar of the engine
 	DefaultEngineMetricsPort   = 8000
 	DefaultEngineMetricsPath   = "/metrics"
+	DefaultEngineScraper       = "prometheus"
 	DefaultScrapeTimeout       = 5 * time.Second
 )
 
@@ -40,6 +41,7 @@ func NewOptions() *Options {
 		EngineHost:          DefaultEngineHost,
 		EngineMetricsPort:   DefaultEngineMetricsPort,
 		EngineMetricsPath:   DefaultEngineMetricsPath,
+		EngineScraper:       DefaultEngineScraper,
 		ScrapeTimeout:       DefaultScrapeTimeout,
 	}
 }
@@ -48,7 +50,8 @@ func NewOptions() *Options {
 type Options struct {
 	ExporterMetricsPort int // Port on which the exporter serves the contract metrics endpoint.
 
-	ProfilePath string // Path to the engine profile file.
+	ProfilePath   string // Path to the engine profile file.
+	EngineScraper string // Format/protocol adapter for the engine endpoint.
 
 	EngineHost        string        // Host the engine's metrics endpoint listens on.
 	EngineMetricsPort int           // Port the engine's metrics endpoint listens on.
@@ -63,6 +66,7 @@ func (opts *Options) AddFlags(fs *pflag.FlagSet) {
 
 	fs.IntVar(&opts.ExporterMetricsPort, "exporter-metrics-port", opts.ExporterMetricsPort, "Port on which the exporter serves the contract metrics endpoint.")
 	fs.StringVar(&opts.ProfilePath, "profile", opts.ProfilePath, "Path to the engine profile YAML (required).")
+	fs.StringVar(&opts.EngineScraper, "engine-scraper", opts.EngineScraper, "Engine scraper: prometheus or rtp-llm-worker-status.")
 	fs.StringVar(&opts.EngineHost, "engine-host", opts.EngineHost, "Host of the engine's metrics endpoint.")
 	fs.IntVar(&opts.EngineMetricsPort, "engine-metrics-port", opts.EngineMetricsPort, "Port of the engine's metrics endpoint.")
 	fs.StringVar(&opts.EngineMetricsPath, "engine-metrics-path", opts.EngineMetricsPath, "HTTP path of the engine's metrics endpoint.")
@@ -75,6 +79,11 @@ func (opts *Options) Complete() error {
 }
 
 func (opts *Options) Validate() error {
+	switch opts.EngineScraper {
+	case "prometheus", "rtp-llm-worker-status":
+	default:
+		return fmt.Errorf("invalid --engine-scraper %q: must be prometheus or rtp-llm-worker-status", opts.EngineScraper)
+	}
 	if opts.ExporterMetricsPort < 1 || opts.ExporterMetricsPort > 65535 {
 		return fmt.Errorf("invalid --exporter-metrics-port %d: must be in range 1-65535", opts.ExporterMetricsPort)
 	}

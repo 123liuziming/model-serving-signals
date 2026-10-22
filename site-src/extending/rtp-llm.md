@@ -57,7 +57,13 @@ The response schema and task-state semantics were checked against RTP-LLM commit
 
 This adapter requires that schema, including explicit phase names and per-worker `dp_size`,
 `dp_rank`, and `role_type`. It does not infer state from older `is_waiting`-only responses.
-Tests use source-shaped JSON fixtures, not a live GPU-backed engine capture.
+Unit tests use source-shaped JSON fixtures. The adapter was also validated against a
+live engine built from that commit on 2026-10-22, using CUDA 13.2, an NVIDIA A10, and
+Qwen3-0.6B. Three concurrent requests each returned 128 output tokens successfully;
+31 exporter scrapes observed queued and running counts reaching 2, and the running
+count returned to zero after the requests completed. This was a single-DP,
+non-disaggregated deployment; multi-DP and prefill/decode deployments were not
+exercised in that run.
 
 ## Signals left unmapped
 
@@ -69,4 +75,33 @@ The request duration and first-token metrics (`rtp_llm_latency_us` and
 `rtp_llm_first_token_latency_us`) are KMonitor gauges in microseconds, not the contract's
 histograms in seconds. Request duration, TTFT, and per-request mean TPOT are therefore left
 unmapped. Polling task snapshots or scaling an aggregated latency gauge cannot reconstruct
-those histograms; they require request-level histogram instrumentation in the engine.
+those histograms. They require individual request observations, either through engine
+histogram instrumentation or a separate trace aggregation path.
+
+### Trace aggregation experiment
+
+The same live engine exported OTLP/HTTP protobuf traces with
+`RTP_LLM_TRACE_CONFIG` enabled and `sampler_ratio` set to `1.0`. Ten controlled
+`/v1/chat/completions` requests succeeded, and each matched exactly one frontend
+SERVER span named `POST /v1/chat/completions` with resource `rtp_llm.role=frontend`.
+An offline aggregation of those spans produced:
+
+| Observation | Source | Observations from 10 requests |
+| --- | --- | --- |
+| Request span duration | End timestamp minus start timestamp, converted from nanoseconds to seconds | 10 |
+| Frontend TTFT | `gen_ai.response.time_to_first_token`, converted from milliseconds to seconds | 9 |
+| Frontend mean TPOT | `rtp_llm.frontend.time_per_output_token_ms`, converted from milliseconds to seconds | 8 |
+
+The workload contained eight streaming requests with 32 output tokens, one streaming
+request with one output token, and one non-streaming request with 32 output tokens.
+The non-streaming request omitted both frontend token timing attributes. The
+single-token request omitted TPOT. Missing observations must not be replaced with
+zeros. Engine CLIENT spans have different timing boundaries and must not be counted
+again as frontend request observations.
+
+This demonstrates that request-level timing observations are available; the current
+exporter does **not** receive traces or expose these latency histograms. A production
+trace aggregation path would need explicit handling of sampling, export loss, retries,
+and the streaming-only coverage of frontend token timings. The observed span duration
+also includes frontend completion/cleanup work, so its endpoint needs to be assessed
+against the contract's last-byte or last-token boundary.

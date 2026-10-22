@@ -6,3 +6,8 @@ name: rtp-llm
 signals:
   gen_ai.server.request.queued: rtp_llm_worker_status_requests_queued
   gen_ai.server.request.running: rtp_llm_worker_status_requests_running
+# Latency histograms are temporarily unsupported by this profile:
+# gen_ai.server.request.duration
+# gen_ai.server.time_to_first_token
+# gen_ai.server.time_per_output_token
+# Upstream additions and future mapping are tracked in docs/rtp-llm.md.

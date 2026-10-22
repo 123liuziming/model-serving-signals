@@ -67,6 +67,24 @@ exercised in that run.
 
 ## Signals left unmapped
 
+**This adapter currently maps only queued and running request gauges.** The
+following contract signals are temporarily unsupported and are not emitted:
+
+| Contract signal | Mapping status |
+| --- | --- |
+| `gen_ai.server.request.duration` | Unsupported; requires request-level duration histograms. |
+| `gen_ai.server.time_to_first_token` | Unsupported; requires successful-request TTFT histograms. |
+| `gen_ai.server.time_per_output_token` | Unsupported; requires per-request mean TPOT histograms. |
+
+[Upstream RTP-LLM PR #1545](https://github.com/alibaba/rtp-llm/pull/1545) proposes
+adding separate latency histograms while preserving existing KMonitor gauges.
+Those additions are not a dependency of this worker-status adapter, and this
+profile does not map them yet. Mapping requires a follow-up after upstream
+availability, collection configuration, and request coverage have been verified.
+The latency definitions come from the public
+[OpenTelemetry GenAI semantic conventions](https://github.com/open-telemetry/semantic-conventions-genai/blob/main/docs/gen-ai/gen-ai-metrics.md#generative-ai-model-server-metrics),
+which currently have Development stability.
+
 RTP-LLM already has `rtp_llm_wait_stream_size` and `rtp_llm_running_stream_size` KMonitor
 instrumentation, but those are a different collection path. The inspected initialization
 leaves the Prometheus sink disabled, so a native-name YAML profile alone cannot scrape them.

@@ -77,10 +77,12 @@ following contract signals are temporarily unsupported and are not emitted:
 | `gen_ai.server.time_per_output_token` | Unsupported; requires per-request mean TPOT histograms. |
 
 [Upstream RTP-LLM PR #1545](https://github.com/alibaba/rtp-llm/pull/1545) proposes
-adding separate latency histograms while preserving existing KMonitor gauges.
-Those additions are not a dependency of this worker-status adapter, and this
+recording the existing KMonitor latency Gauge samples in companion Histograms,
+with milliseconds converted to seconds and the original timing boundaries preserved.
+In particular, the iteration-latency Histogram is not a per-request mean TPOT
+distribution. These additions are not a dependency of this worker-status adapter, and this
 profile does not map them yet. Mapping requires a follow-up after upstream
-availability, collection configuration, and request coverage have been verified.
+availability, collection support, timing semantics, and request coverage have been verified.
 The latency definitions come from the public
 [OpenTelemetry GenAI semantic conventions](https://github.com/open-telemetry/semantic-conventions-genai/blob/main/docs/gen-ai/gen-ai-metrics.md#generative-ai-model-server-metrics),
 which currently have Development stability.

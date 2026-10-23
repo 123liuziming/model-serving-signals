@@ -3,12 +3,11 @@
 The RTP-LLM adapter reads JSON from the **Python frontend's `/worker_status`** endpoint.
 It does not require a Prometheus endpoint, a KMonitor gateway, or changes to RTP-LLM.
 The scraper converts task snapshots into gauge metric families; the existing translator then
-maps them using [`catalog/profiles/rtp-llm.yaml`](../catalog/profiles/rtp-llm.yaml).
+maps them using [`catalog/profiles/rtp-llm.yaml`](https://github.com/kubernetes-sigs/model-serving-signals/blob/main/catalog/profiles/rtp-llm.yaml).
 
 ```sh
 go run ./cmd/exporter \
   --profile catalog/profiles/rtp-llm.yaml \
-  --engine-scraper rtp-llm-worker-status \
   --engine-host localhost \
   --engine-metrics-port 8000 \
   --engine-metrics-path /worker_status
@@ -17,7 +16,9 @@ curl -s localhost:9464/metrics
 
 Replace `8000` with the frontend's actual HTTP port. Do not target the C++ HTTP health
 endpoint of the same name: it returns cache/health information without task snapshots.
-The default `--engine-scraper prometheus` remains unchanged for other engines.
+The profile declares `scraper: rtp-llm-worker-status`, so no scraper flag is needed.
+Profiles without `scraper` continue to use Prometheus. An explicit `--engine-scraper`
+must match the profile; incompatible combinations fail at startup.
 
 ## Supported signals
 
@@ -76,52 +77,122 @@ following contract signals are temporarily unsupported and are not emitted:
 | `gen_ai.server.time_to_first_token` | Unsupported; requires successful-request TTFT histograms. |
 | `gen_ai.server.time_per_output_token` | Unsupported; requires per-request mean TPOT histograms. |
 
-[Upstream RTP-LLM PR #1545](https://github.com/alibaba/rtp-llm/pull/1545) proposes
-recording the existing KMonitor latency Gauge samples in companion Histograms,
-with milliseconds converted to seconds and the original timing boundaries preserved.
-In particular, the iteration-latency Histogram is not a per-request mean TPOT
-distribution. These additions are not a dependency of this worker-status adapter, and this
-profile does not map them yet. Mapping requires a follow-up after upstream
-availability, collection support, timing semantics, and request coverage have been verified.
-The latency definitions come from the public
-[OpenTelemetry GenAI semantic conventions](https://github.com/open-telemetry/semantic-conventions-genai/blob/main/docs/gen-ai/gen-ai-metrics.md#generative-ai-model-server-metrics),
-which currently have Development stability.
+The earlier Trace experiment was offline validation, not an implemented exporter
+feature or a profile mapping. This exporter does not consume OTLP traces. The
+profile therefore intentionally contains only the two request gauges above.
 
-RTP-LLM already has `rtp_llm_wait_stream_size` and `rtp_llm_running_stream_size` KMonitor
-instrumentation, but those are a different collection path. The inspected initialization
-leaves the Prometheus sink disabled, so a native-name YAML profile alone cannot scrape them.
+## Collecting upstream latency histograms
 
-The request duration and first-token metrics (`rtp_llm_latency_us` and
-`rtp_llm_first_token_latency_us`) are KMonitor gauges in microseconds, not the contract's
-histograms in seconds. Request duration, TTFT, and per-request mean TPOT are therefore left
-unmapped. Polling task snapshots or scaling an aggregated latency gauge cannot reconstruct
-those histograms. They require individual request observations, either through engine
-histogram instrumentation or a separate trace aggregation path.
+[RTP-LLM PR #1545](https://github.com/alibaba/rtp-llm/pull/1545), tested at commit
+`adc4feb851`, adds three Python KMonitor
+Histogram companions. They preserve the existing Gauge samples, convert milliseconds
+to seconds, and send cumulative `_bucket`, `_sum`, and `_count` components over
+Flume. **The PR does not add a pull endpoint.**
 
-### Trace aggregation experiment
+The optional diagnostic
+[`hack/rtp-llm/kmonitor_bridge.py`](https://github.com/kubernetes-sigs/model-serving-signals/blob/main/hack/rtp-llm/kmonitor_bridge.py)
+receives these batches and exposes native Prometheus histograms:
 
-The same live engine exported OTLP/HTTP protobuf traces with
-`RTP_LLM_TRACE_CONFIG` enabled and `sampler_ratio` set to `1.0`. Ten controlled
-`/v1/chat/completions` requests succeeded, and each matched exactly one frontend
-SERVER span named `POST /v1/chat/completions` with resource `rtp_llm.role=frontend`.
-An offline aggregation of those spans produced:
-
-| Observation | Source | Observations from 10 requests |
+| Native family | Preserved timing semantics | Contract mapping |
 | --- | --- | --- |
-| Request span duration | End timestamp minus start timestamp, converted from nanoseconds to seconds | 10 |
-| Frontend TTFT | `gen_ai.response.time_to_first_token`, converted from milliseconds to seconds | 9 |
-| Frontend mean TPOT | `rtp_llm.frontend.time_per_output_token_ms`, converted from milliseconds to seconds | 8 |
+| `py_rtp_framework_rt_seconds` | Existing framework/caller timing boundaries, which vary by operation/protocol. | Unmapped until request-duration coverage is verified. |
+| `py_rtp_response_first_token_rt_seconds` | First response, including control chunks/non-streaming observations; not restricted to successful requests. | Unmapped: not verified as successful-request TTFT. |
+| `py_rtp_response_iterate_rt_seconds` | Per-iteration observations, with caller-specific normalization. | Unmapped: not per-request mean TPOT. |
 
-The workload contained eight streaming requests with 32 output tokens, one streaming
-request with one output token, and one non-streaming request with 32 output tokens.
-The non-streaming request omitted both frontend token timing attributes. The
-single-token request omitted TPOT. Missing observations must not be replaced with
-zeros. Engine CLIENT spans have different timing boundaries and must not be counted
-again as frontend request observations.
+The bridge changes the transport representation only. It does not rename these
+families to `gen_ai_*`, re-bucket observations, or reinterpret their timing. The
+exporter's existing Prometheus scraper can read its endpoint, but the RTP-LLM
+contract profile still leaves these signals unmapped. Scrape the native endpoint
+separately when examining those distributions.
 
-This demonstrates that request-level timing observations are available; the current
-exporter does **not** receive traces or expose these latency histograms. A production
-trace aggregation path would need explicit handling of sampling, export loss, retries,
-and the streaming-only coverage of frontend token timings. The observed span duration
-also includes frontend completion/cleanup work, so its endpoint needs to be assessed
-against the contract's last-byte or last-token boundary.
+Run the bridge in the same Pod/network namespace as RTP-LLM, using a Python
+environment with the RTP-LLM wheel and its `thrift` dependency installed:
+
+```sh
+python3 hack/rtp-llm/kmonitor_bridge.py &
+# Before starting the engine:
+export HIPPO_SLAVE_IP=127.0.0.1
+export HIPPO_ROLE_SHORT_NAME=rtp-llm-validation
+export RTP_LLM_LATENCY_HISTOGRAM_ENABLED=1
+# Start RTP-LLM, send inference requests, then:
+curl -s localhost:19465/metrics
+```
+
+`RTP_LLM_LATENCY_HISTOGRAM_ENABLED=0` disables the new observations; the default
+is enabled. The existing Python KMonitor reporter additionally requires a nonempty
+Hippo role and sends to `HIPPO_SLAVE_IP:4141`. The bridge binds loopback by default.
+It is intended for a standalone test deployment: it consumes that Flume destination
+and ignores unrelated metrics, so do not substitute it for an existing production
+KMonitor collector. It reuses RTP-LLM's generated Flume protocol classes.
+
+Only complete snapshots with the pinned upstream bucket sets are published. Repeated
+reports replace the previous snapshot rather than adding counts. Labels, including
+`process_instance_id`, remain intact; delayed/regressing snapshots are ignored and
+series expire after 30 seconds without fresh source timestamps (`--max-age`). There
+is a 4096-series bound. Invalid batches are logged and rejected atomically. A changed
+upstream bucket schema requires updating the bridge before use. This utility is not
+part of the Go exporter image and is not a general-purpose Flume gateway.
+
+## GPU Kubernetes deployment template
+
+[`test/deploy/rtp-llm.yaml`](https://github.com/kubernetes-sigs/model-serving-signals/blob/main/test/deploy/rtp-llm.yaml)
+provides a single-GPU deployment with the engine, contract exporter, and optional
+native histogram bridge. Prerequisites:
+
+- A GPU node with NVIDIA device-plugin support and enough memory for Qwen3-0.6B.
+- A PVC named `rtp-llm-model` in the chosen namespace, containing `Qwen3-0.6B/`.
+- An RTP-LLM runtime image with the wheel installed, compatible CUDA libraries, and
+  PR #1545's Python changes for the optional bridge. A build-environment-only image
+  is insufficient. The engine command assumes `python3` resolves to that environment.
+- An exporter image built from this branch (`make image-build IMAGE=...`, then push
+  or load it into the cluster). Image placeholders below must be replaced.
+
+From the repository root:
+
+```sh
+export RTP_LLM_IMAGE=your-registry/rtp-llm:tested-revision
+export EXPORTER_IMAGE=your-registry/model-serving-signals:rtp-llm
+kubectl create namespace rtp-llm-test
+# Provision rtp-llm-model in this namespace before applying the deployment.
+kubectl -n rtp-llm-test create configmap rtp-llm-profile \
+  --from-file=rtp-llm.yaml=catalog/profiles/rtp-llm.yaml
+kubectl -n rtp-llm-test create configmap rtp-llm-bridge \
+  --from-file=hack/rtp-llm/kmonitor_bridge.py
+envsubst '${RTP_LLM_IMAGE} ${EXPORTER_IMAGE}' < test/deploy/rtp-llm.yaml | \
+  kubectl -n rtp-llm-test apply -f -
+kubectl -n rtp-llm-test rollout status deployment/rtp-llm --timeout=15m
+kubectl -n rtp-llm-test port-forward deployment/rtp-llm \
+  30000:30000 9464:9464 19465:19465
+```
+
+In another terminal, issue inference requests and inspect the two endpoints:
+
+```sh
+curl -s localhost:30000/v1/chat/completions -H 'Content-Type: application/json' \
+  -d '{"model":"default","messages":[{"role":"user","content":"Count to ten."}],"max_tokens":32,"stream":true}'
+curl -s localhost:9464/metrics   # Contract queued/running gauges
+curl -s localhost:19465/metrics  # Native latency histograms, after observations
+```
+
+For worker-status-only validation, remove the `histogram-bridge` container and the
+three engine reporting environment variables. No Flume receiver or upstream
+Histogram change is required for those two contract gauges.
+
+The template is provided for GPU-cluster testing, not as a verified Helm deployment.
+The live validation below used Docker on a GPU host; Kubernetes scheduling/PVC and
+multi-DP/disaggregated deployments have not been exercised.
+
+## Validation
+
+- `go test ./...` includes a subprocess test of the actual exporter `main()` against
+  an HTTP JSON fixture: automatic profile selection, queued/running output, failed
+  scrape suppression, recovery, and incompatible scraper rejection.
+- `python3 -m unittest discover -s hack/rtp-llm -v` checks histogram reconstruction,
+  retries, process separation, invalid/incomplete batches, expiry, and series limits.
+- Live Qwen3-0.6B on A10/CUDA 13.2, two frontends: six requests produced native
+  Histogram counts of 6 framework RT, 6 first-response RT, and 72 iterate RT.
+  Repeated HTTP scrapes over later Flume reports retained the same totals, with
+  one process identity observed for this request batch (multi-process separation is
+  also covered by the bridge unit test). The contract endpoint continued to emit only
+  queued/running gauges. This used the source-built wheel at `1812ac310f95` with
+  the upstream PR's Python changes applied; it was not a new full CUDA build.

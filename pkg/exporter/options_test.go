@@ -24,7 +24,7 @@ import (
 )
 
 func TestEngineScraperOption(t *testing.T) {
-	for _, name := range []string{"prometheus", "rtp-llm-worker-status", "unknown"} {
+	for _, name := range []string{"", "prometheus", "rtp-llm-worker-status", "unknown"} {
 		t.Run(name, func(t *testing.T) {
 			opts := NewOptions()
 			flags := pflag.NewFlagSet("test", pflag.ContinueOnError)
@@ -42,7 +42,7 @@ func TestEngineScraperOption(t *testing.T) {
 			}
 		})
 	}
-	if got := NewOptions().EngineScraper; got != "prometheus" {
+	if got := NewOptions().EngineScraper; got != "" {
 		t.Fatalf("default scraper=%q", got)
 	}
 }

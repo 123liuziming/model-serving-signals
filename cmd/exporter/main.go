@@ -65,10 +65,15 @@ func main() {
 	ctx := ctrl.SetupSignalHandler()
 	ctx = log.IntoContext(ctx, ctrl.Log.WithName("metrics-exporter"))
 
-	httpScraper := translator.NewHTTPScraper(opts.EngineHost, opts.EngineMetricsPort, opts.EngineMetricsPath)
-	var engineScraper translator.Scraper = httpScraper
-	if opts.EngineScraper == "rtp-llm-worker-status" {
-		engineScraper = &translator.RTPWorkerStatus{HTTP: *httpScraper}
+	scraperKind, err := translator.ResolveScraperKind(engineProfile, opts.EngineScraper)
+	if err != nil {
+		setupLog.Error(err, "Invalid profile/scraper combination")
+		os.Exit(1)
+	}
+	engineScraper, err := translator.NewScraper(scraperKind, opts.EngineHost, opts.EngineMetricsPort, opts.EngineMetricsPath)
+	if err != nil {
+		setupLog.Error(err, "Failed to build engine scraper")
+		os.Exit(1)
 	}
 	collector, err := translator.New(ctx, engineScraper, engineProfile, opts.ScrapeTimeout,
 		translator.WithLogger(ctrl.Log.WithName("translator")),
@@ -89,7 +94,7 @@ func main() {
 		Gatherer:    registry,
 	}
 
-	setupLog.Info("Starting metrics exporter", "engineMetricsURL", httpScraper.URL, "scraper", opts.EngineScraper)
+	setupLog.Info("Starting metrics exporter", "engineHost", opts.EngineHost, "engineMetricsPort", opts.EngineMetricsPort, "engineMetricsPath", opts.EngineMetricsPath, "scraper", scraperKind)
 	if err := metricsExporter.Start(ctx); err != nil {
 		setupLog.Error(err, "failed running metrics exporter")
 		os.Exit(1)

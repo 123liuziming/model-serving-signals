@@ -6,6 +6,9 @@ metadata:
   name: rtp-llm
 spec:
   replicas: 1
+  # Release the single GPU and model volume before starting a replacement Pod.
+  strategy:
+    type: Recreate
   selector:
     matchLabels:
       app: rtp-llm
@@ -87,6 +90,9 @@ spec:
         - name: histogram-bridge
           image: ${RTP_LLM_IMAGE}
           command: [python3, /bridge/kmonitor_bridge.py]
+          env:
+            - name: NVIDIA_VISIBLE_DEVICES
+              value: void
           ports:
             - name: native
               containerPort: 19465

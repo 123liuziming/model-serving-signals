@@ -140,18 +140,12 @@ provides a single-GPU deployment with the engine, contract exporter, and optiona
 native histogram bridge. Prerequisites:
 
 - A GPU node with NVIDIA device-plugin support and enough memory for Qwen3-0.6B.
-- Enough node image storage for both image layers and the unpacked runtime.
 - A PVC named `rtp-llm-model` in the chosen namespace, containing `Qwen3-0.6B/`.
 - An RTP-LLM runtime image with the wheel installed, compatible CUDA libraries, and
   PR #1545's Python changes for the optional bridge. A build-environment-only image
   is insufficient. The engine command assumes `python3` resolves to that environment.
 - An exporter image built from this branch (`make image-build IMAGE=...`, then push
   or load it into the cluster). Image placeholders below must be replaced.
-
-For private registries, configure `imagePullSecrets` in the Pod or its service
-account. Preloaded images must be available on the selected GPU node. The template
-uses `Recreate` so that an update releases the old Pod's GPU and model volume
-before starting its replacement; updates therefore interrupt serving.
 
 From the repository root:
 
@@ -184,16 +178,9 @@ For worker-status-only validation, remove the `histogram-bridge` container and t
 three engine reporting environment variables. No Flume receiver or upstream
 Histogram change is required for those two contract gauges.
 
-The template was validated on an ACK GPU cluster on 2026-10-23 with one NVIDIA A10,
-driver 580.126.09, CUDA 13.2, Qwen3-0.6B, and a ReadWriteOnce model PVC. All three
-containers became ready with zero container restarts. A `rollout restart` also
-completed on the same single-GPU node using `Recreate`; the new frontend had a
-different process identity and exposed no old-process histogram series. Runtime
-images were preloaded on the selected node; private-registry credentials and node
-selection were supplied as deployment-specific settings.
-
-This is a single-DP, non-disaggregated test deployment, not a Helm deployment.
-Multi-DP and disaggregated operation have not been exercised live.
+The template is provided for GPU-cluster testing, not as a verified Helm deployment.
+The live validation below used Docker on a GPU host; Kubernetes scheduling/PVC and
+multi-DP/disaggregated deployments have not been exercised.
 
 ## Validation
 
@@ -209,11 +196,3 @@ Multi-DP and disaggregated operation have not been exercised live.
   also covered by the bridge unit test). The contract endpoint continued to emit only
   queued/running gauges. This used the source-built wheel at `1812ac310f95` with
   the upstream PR's Python changes applied; it was not a new full CUDA build.
-- ACK Kubernetes validation with one frontend and the same wheel/Histogram revision:
-  six streaming/non-streaming requests, including three concurrent requests, all
-  succeeded. Across 89 exporter scrapes, queued and running gauges each reached 2
-  and returned to zero when idle. Native Histogram counts were 6 framework RT,
-  6 first-response RT, and 241 iterate RT. All bucket counts were monotonic,
-  `+Inf` equaled `_count`, and repeated reports retained identical totals. Standard
-  latency contract metrics remained absent. The native iteration count records
-  observations at RTP-LLM's reporting sites, not a per-request mean TPOT.

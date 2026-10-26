@@ -1,5 +1,5 @@
 # Supply images built with the required RTP-LLM revision and this exporter PR.
-# Create rtp-llm-profile and rtp-llm-bridge ConfigMaps using the guide first.
+# Create the rtp-llm-profile ConfigMap using the guide first.
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -28,13 +28,6 @@ spec:
             - --start_port=30000
             - --max_seq_len=2048
             - --kv_cache_mem_mb=2048
-          env:
-            - name: HIPPO_SLAVE_IP
-              value: "127.0.0.1"
-            - name: HIPPO_ROLE_SHORT_NAME
-              value: rtp-llm-validation
-            - name: RTP_LLM_LATENCY_HISTOGRAM_ENABLED
-              value: "1"
           ports:
             - name: inference
               containerPort: 30000
@@ -85,27 +78,6 @@ spec:
             - name: profile
               mountPath: /config
               readOnly: true
-        # Optional diagnostic endpoint. Remove this container and the engine's
-        # three reporting env vars to test only the worker-status adapter.
-        - name: histogram-bridge
-          image: ${RTP_LLM_IMAGE}
-          command: [python3, /bridge/kmonitor_bridge.py]
-          env:
-            - name: NVIDIA_VISIBLE_DEVICES
-              value: void
-          ports:
-            - name: native
-              containerPort: 19465
-          resources:
-            requests:
-              cpu: 100m
-              memory: 128Mi
-            limits:
-              memory: 512Mi
-          volumeMounts:
-            - name: bridge
-              mountPath: /bridge
-              readOnly: true
       volumes:
         - name: model
           persistentVolumeClaim:
@@ -117,6 +89,3 @@ spec:
         - name: profile
           configMap:
             name: rtp-llm-profile
-        - name: bridge
-          configMap:
-            name: rtp-llm-bridge

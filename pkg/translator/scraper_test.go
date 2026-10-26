@@ -23,7 +23,6 @@ import (
 	"testing"
 
 	dto "github.com/prometheus/client_model/go"
-	"sigs.k8s.io/model-serving-signals/pkg/profile"
 )
 
 const vllmExposition = `# HELP vllm:e2e_request_latency_seconds Histogram of e2e request latency in seconds.
@@ -97,31 +96,8 @@ func TestNewHTTPScraperURL(t *testing.T) {
 	}
 }
 
-func TestScraperSelection(t *testing.T) {
-	for _, tc := range []struct {
-		name, declared, override string
-		want                     ScraperKind
-		wantErr                  bool
-	}{
-		{"legacy profile", "", "", ScraperPrometheus, false},
-		{"explicit prometheus", string(ScraperPrometheus), string(ScraperPrometheus), ScraperPrometheus, false},
-		{"RTP auto", string(ScraperRTPWorkerStatus), "", ScraperRTPWorkerStatus, false},
-		{"RTP explicit", string(ScraperRTPWorkerStatus), string(ScraperRTPWorkerStatus), ScraperRTPWorkerStatus, false},
-		{"vllm with RTP scraper", "", string(ScraperRTPWorkerStatus), "", true},
-		{"RTP with prometheus", string(ScraperRTPWorkerStatus), string(ScraperPrometheus), "", true},
-		{"unknown profile scraper", "typo", "", "", true},
-	} {
-		t.Run(tc.name, func(t *testing.T) {
-			got, err := ResolveScraperKind(&profile.Profile{Name: tc.name, Scraper: tc.declared}, tc.override)
-			if (err != nil) != tc.wantErr || got != tc.want {
-				t.Fatalf("got %q, %v; want %q, error=%v", got, err, tc.want, tc.wantErr)
-			}
-		})
-	}
-}
-
 func TestScraperFactory(t *testing.T) {
-	for _, kind := range ScraperKinds() {
+	for _, kind := range []ScraperKind{"", ScraperPrometheus, ScraperRTPWorkerStatus} {
 		t.Run(string(kind), func(t *testing.T) {
 			s, err := NewScraper(kind, "::1", 8000, "/worker_status")
 			if err != nil {
@@ -130,7 +106,7 @@ func TestScraperFactory(t *testing.T) {
 			var endpoint string
 			switch concrete := s.(type) {
 			case *HTTPScraper:
-				if kind != ScraperPrometheus {
+				if kind != "" && kind != ScraperPrometheus {
 					t.Fatal("wrong adapter")
 				}
 				endpoint = concrete.URL

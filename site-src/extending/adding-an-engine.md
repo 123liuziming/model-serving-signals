@@ -30,7 +30,7 @@ signals:
 
 Profiles may declare `scraper: rtp-llm-worker-status` for non-Prometheus input.
 Omitting `scraper` selects `prometheus`, preserving existing profiles. The exporter
-uses this value automatically; an explicit `--engine-scraper` must match it.
+selects the scraper directly from the profile; unsupported kinds fail at startup.
 
 Each entry names the native metric that is re-emitted as is under the contract signal's name. The native
 instrument type must match the contract signal's: a histogram for a histogram signal, a gauge for a gauge
@@ -81,7 +81,7 @@ iterating on a mapping, or for engines not yet in the catalog.
 - The engine exposes a signal with an instrument type the translator does not re-emit yet. See
   [Adding a new signal](adding-a-signal.md), step 3.
 - The engine's metrics endpoint is not Prometheus text format. Implement the `translator.Scraper` interface in
-  [`pkg/translator/`](https://github.com/kubernetes-sigs/model-serving-signals/blob/main/pkg/translator/) and register its kind in `translator.NewScraper` and `translator.ScraperKinds`. A scraper converts the
+  [`pkg/translator/`](https://github.com/kubernetes-sigs/model-serving-signals/blob/main/pkg/translator/) and register its kind in `translator.NewScraper`. A scraper converts the
   source protocol into typed metric families; the translator does not require Prometheus input.
   See the [RTP-LLM JSON adapter](rtp-llm.md), selected by its profile's `scraper: rtp-llm-worker-status`,
   for an example. Keep the source semantics and units intact, and reject incomplete responses rather

@@ -25,6 +25,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -146,13 +147,16 @@ func TestRTPExporterProcess(t *testing.T) {
 	if err := cmd.Wait(); err != nil {
 		t.Fatalf("shutdown: %v", err)
 	}
-	// A bad override fails before serving metrics instead of silently choosing
-	// an adapter unable to read the selected profile.
-	mismatch := exec.CommandContext(ctx, binary, append(helperArgs, "--engine-scraper", "prometheus")...)
-	mismatch.Env = append(os.Environ(), "GO_WANT_EXPORTER_PROCESS=1")
-	output, err := mismatch.CombinedOutput()
-	if err == nil || !strings.Contains(string(output), "incompatible --engine-scraper") {
-		t.Fatalf("mismatch accepted: %v %s", err, output)
+	// An unsupported profile protocol fails before the exporter starts serving.
+	badProfile := filepath.Join(t.TempDir(), "unsupported.yaml")
+	if err := os.WriteFile(badProfile, []byte("name: unsupported\nscraper: unknown\nsignals:\n  gen_ai.server.request.running: requests_running\n"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	rejected := exec.CommandContext(ctx, binary, append(helperArgs, "--profile", badProfile)...)
+	rejected.Env = append(os.Environ(), "GO_WANT_EXPORTER_PROCESS=1")
+	output, err := rejected.CombinedOutput()
+	if err == nil || !strings.Contains(string(output), "unsupported scraper kind") {
+		t.Fatalf("unsupported profile scraper accepted: %v %s", err, output)
 	}
 }
 

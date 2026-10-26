@@ -23,13 +23,11 @@ import (
 	"net"
 	"net/http"
 	"net/url"
-	"slices"
 	"strconv"
 
 	dto "github.com/prometheus/client_model/go"
 	"github.com/prometheus/common/expfmt"
 	"github.com/prometheus/common/model"
-	"sigs.k8s.io/model-serving-signals/pkg/profile"
 )
 
 // ScraperKind identifies a supported engine metrics protocol.
@@ -40,39 +38,12 @@ const (
 	ScraperRTPWorkerStatus ScraperKind = "rtp-llm-worker-status"
 )
 
-// ScraperKinds returns the supported protocols, shared by flags and validation.
-func ScraperKinds() []ScraperKind {
-	return []ScraperKind{ScraperPrometheus, ScraperRTPWorkerStatus}
-}
-
-// ValidateScraperKind rejects protocols the exporter cannot read.
-func ValidateScraperKind(kind ScraperKind) error {
-	if !slices.Contains(ScraperKinds(), kind) {
-		return fmt.Errorf("unknown scraper kind %q, want one of %v", kind, ScraperKinds())
-	}
-	return nil
-}
-
-// ResolveScraperKind selects the profile's protocol and rejects incompatible CLI overrides.
-func ResolveScraperKind(p *profile.Profile, override string) (ScraperKind, error) {
-	kind := ScraperKind(p.Scraper)
-	if kind == "" {
-		kind = ScraperPrometheus
-	}
-	if err := ValidateScraperKind(kind); err != nil {
-		return "", fmt.Errorf("profile %q: %w", p.Name, err)
-	}
-	if override != "" && ScraperKind(override) != kind {
-		return "", fmt.Errorf("profile %q requires scraper %q, incompatible --engine-scraper %q", p.Name, kind, override)
-	}
-	return kind, nil
-}
-
-// NewScraper constructs the protocol adapter for http://host:port/path.
+// NewScraper constructs the profile-selected protocol adapter for http://host:port/path.
+// An empty kind defaults to Prometheus for profiles that omit the scraper field.
 func NewScraper(kind ScraperKind, host string, port int, path string) (Scraper, error) {
 	httpScraper := NewHTTPScraper(host, port, path)
 	switch kind {
-	case ScraperPrometheus:
+	case "", ScraperPrometheus:
 		return httpScraper, nil
 	case ScraperRTPWorkerStatus:
 		return &RTPWorkerStatus{HTTPScraper: *httpScraper}, nil

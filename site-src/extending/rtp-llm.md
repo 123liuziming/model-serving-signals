@@ -17,8 +17,8 @@ curl -s localhost:9464/metrics
 Replace `8000` with the frontend's actual HTTP port. Do not target the C++ HTTP health
 endpoint of the same name: it returns cache/health information without task snapshots.
 The profile declares `scraper: rtp-llm-worker-status`, so no scraper flag is needed.
-Profiles without `scraper` continue to use Prometheus. An explicit `--engine-scraper`
-must match the profile; incompatible combinations fail at startup.
+Profiles without `scraper` continue to use Prometheus. Unsupported scraper kinds
+fail at startup.
 
 ## Supported signals
 
@@ -122,4 +122,4 @@ curl -s localhost:9464/metrics   # Contract queued/running gauges
 
 - `go test ./...` includes a subprocess test of the actual exporter `main()` against
   an HTTP JSON fixture: automatic profile selection, queued/running output, failed
-  scrape suppression, recovery, and incompatible scraper rejection.
+  scrape suppression, recovery, and unsupported profile scraper rejection.

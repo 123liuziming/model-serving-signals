@@ -35,9 +35,9 @@ const (
 
 // RTPWorkerStatus scrapes the RTP-LLM frontend's JSON /worker_status endpoint.
 // The C++ HTTP health endpoint with the same path does not contain task states.
-// HTTP supplies the URL, optional client, and context-aware transport.
+// HTTPScraper supplies the URL, optional client, and context-aware transport.
 type RTPWorkerStatus struct {
-	HTTP
+	HTTPScraper
 }
 
 var _ Scraper = (*RTPWorkerStatus)(nil)

@@ -63,7 +63,7 @@ func TestRTPWorkerStatusCollect(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	scraper := &RTPWorkerStatus{HTTP: HTTP{URL: srv.URL + "/worker_status"}}
+	scraper := &RTPWorkerStatus{HTTPScraper: HTTPScraper{URL: srv.URL + "/worker_status"}}
 	collector, err := New(context.Background(), scraper, p, testScrapeTimeout)
 	if err != nil {
 		t.Fatal(err)
@@ -118,7 +118,7 @@ func TestRTPWorkerStatusTransportFailures(t *testing.T) {
 			w.WriteHeader(http.StatusServiceUnavailable)
 		}))
 		defer srv.Close()
-		scraper := &RTPWorkerStatus{HTTP: HTTP{URL: srv.URL}}
+		scraper := &RTPWorkerStatus{HTTPScraper: HTTPScraper{URL: srv.URL}}
 		if _, err := scraper.Scrape(context.Background()); err == nil {
 			t.Fatal("expected HTTP error")
 		}
@@ -130,7 +130,7 @@ func TestRTPWorkerStatusTransportFailures(t *testing.T) {
 		defer srv.Close()
 		ctx, cancel := context.WithTimeout(context.Background(), 50*time.Millisecond)
 		defer cancel()
-		scraper := &RTPWorkerStatus{HTTP: HTTP{URL: srv.URL}}
+		scraper := &RTPWorkerStatus{HTTPScraper: HTTPScraper{URL: srv.URL}}
 		if _, err := scraper.Scrape(ctx); err == nil {
 			t.Fatal("expected deadline error")
 		}

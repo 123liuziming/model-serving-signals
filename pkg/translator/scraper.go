@@ -77,7 +77,7 @@ func NewScraper(kind ScraperKind, host string, port int, path string) (Scraper, 
 	case ScraperRTPWorkerStatus:
 		return &RTPWorkerStatus{HTTP: *httpScraper}, nil
 	default:
-		return nil, ValidateScraperKind(kind)
+		return nil, fmt.Errorf("unsupported scraper kind %q", kind)
 	}
 }
 

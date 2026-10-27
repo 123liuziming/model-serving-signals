@@ -26,11 +26,16 @@ import (
 func TestParse(t *testing.T) {
 	// Every valid case maps request.duration to vllm:e2e_request_latency_seconds.
 	tests := map[string]struct {
-		yaml    string
-		wantErr string
+		yaml        string
+		wantScraper string
+		wantErr     string
 	}{
 		"valid": {
 			yaml: "name: vllm\nsignals:\n  gen_ai.server.request.duration: vllm:e2e_request_latency_seconds\n",
+		},
+		"explicit scraper": {
+			yaml:        "name: custom\nscraper: rtp-llm-worker-status\nsignals:\n  gen_ai.server.request.duration: vllm:e2e_request_latency_seconds\n",
+			wantScraper: "rtp-llm-worker-status",
 		},
 		"missing name": {
 			yaml:    "signals:\n  gen_ai.server.request.duration: x\n",
@@ -60,6 +65,9 @@ func TestParse(t *testing.T) {
 				if err != nil {
 					t.Fatalf("unexpected error: %v", err)
 				}
+				if profile.Scraper != tc.wantScraper {
+					t.Errorf("Scraper = %q, want %q", profile.Scraper, tc.wantScraper)
+				}
 				signal, ok := contract.Signals["gen_ai.server.request.duration"]
 				if !ok {
 					t.Fatal("contract signal gen_ai.server.request.duration is not registered")
@@ -74,15 +82,5 @@ func TestParse(t *testing.T) {
 				t.Fatalf("error = %v, want it to contain %q", err, tc.wantErr)
 			}
 		})
-	}
-}
-
-func TestProfileScraper(t *testing.T) {
-	p, err := Parse([]byte("name: custom\nscraper: rtp-llm-worker-status\nsignals:\n  gen_ai.server.request.running: requests\n"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	if p.Scraper != "rtp-llm-worker-status" {
-		t.Fatalf("scraper = %q", p.Scraper)
 	}
 }

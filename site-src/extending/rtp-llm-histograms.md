@@ -103,15 +103,3 @@ it from the repository root and commit both files:
     --from-file=hack/rtp-llm/kmonitor_bridge.py --dry-run=client -o yaml
 } > test/e2e/manifests/rtp-llm-histograms-configmap.yaml
 ```
-
-## Validation
-
-- `python3 -m unittest discover -s hack/rtp-llm -v` checks histogram reconstruction,
-  repeated reports, process separation, malformed/incomplete batches, expiry, and limits.
-- `go test ./pkg/translator` verifies the existing HTTP scraper can read a sanitized
-  live capture of all three native histogram families.
-- Prior live testing used Qwen3-0.6B on A10/CUDA 13.2, with the source-built wheel
-  at `1812ac310f95` and upstream Python changes through `adc4feb851`. Six requests
-  produced native counts of 6 framework RT, 6 first-response RT, and 72 iterate RT.
-  Repeated reports retained identical totals. That batch reached one frontend;
-  multi-process isolation is unit-tested.

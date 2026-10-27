@@ -36,7 +36,7 @@ func TestRTPNativeHistogramScrape(t *testing.T) {
 	}
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { _, _ = w.Write(body) }))
 	defer srv.Close()
-	families, err := (&HTTP{URL: srv.URL + "/metrics"}).Scrape(context.Background())
+	families, err := (&HTTPScraper{URL: srv.URL + "/metrics"}).Scrape(context.Background())
 	if err != nil {
 		t.Fatal(err)
 	}

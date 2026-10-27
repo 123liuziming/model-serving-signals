@@ -58,20 +58,23 @@ part of the Go exporter image and is not a general-purpose Flume gateway.
 
 ## GPU Kubernetes example
 
-The [diagnostic deployment](https://github.com/kubernetes-sigs/model-serving-signals/blob/main/test/deploy/rtp-llm-histograms.yaml)
+The [diagnostic deployment](https://github.com/kubernetes-sigs/model-serving-signals/blob/main/test/e2e/manifests/rtp-llm-histograms.yaml)
 runs RTP-LLM and the bridge in the same Pod. It needs one NVIDIA GPU, a compatible
 RTP-LLM runtime image with PR #1545's Python changes, and a PVC named
 `rtp-llm-model` containing `Qwen3-0.6B/`. The image must provide `python3` on PATH.
 The bridge disables NVIDIA device visibility and binds its endpoints to loopback.
-There is no contract exporter in this diagnostic deployment.
+The companion [ConfigMap manifest](https://github.com/kubernetes-sigs/model-serving-signals/blob/main/test/e2e/manifests/rtp-llm-histograms-configmap.yaml)
+provides `/bridge/kmonitor_bridge.py` for the bridge container. Apply both manifests in the same namespace.
+There is no contract exporter in this diagnostic deployment. This GPU example is run manually;
+`make test-e2e` continues to use the CPU simulator.
 
 ```sh
 export RTP_LLM_IMAGE=your-registry/rtp-llm:histogram-revision
 kubectl create namespace rtp-llm-histogram-test
 # Provision the model PVC in this namespace before applying the deployment.
-kubectl -n rtp-llm-histogram-test create configmap rtp-llm-bridge \
-  --from-file=hack/rtp-llm/kmonitor_bridge.py
-envsubst '${RTP_LLM_IMAGE}' < test/deploy/rtp-llm-histograms.yaml | \
+kubectl -n rtp-llm-histogram-test apply \
+  -f test/e2e/manifests/rtp-llm-histograms-configmap.yaml
+envsubst '${RTP_LLM_IMAGE}' < test/e2e/manifests/rtp-llm-histograms.yaml | \
   kubectl -n rtp-llm-histogram-test apply -f -
 kubectl -n rtp-llm-histogram-test rollout status deployment/rtp-llm-histograms --timeout=15m
 kubectl -n rtp-llm-histogram-test port-forward deployment/rtp-llm-histograms \
@@ -84,6 +87,21 @@ In another terminal:
 curl -s localhost:30000/v1/chat/completions -H 'Content-Type: application/json' \
   -d '{"model":"default","messages":[{"role":"user","content":"Count to ten."}],"max_tokens":32,"stream":true}'
 curl -s localhost:19465/metrics
+```
+
+## Updating the bridge ConfigMap
+
+The checked-in ConfigMap embeds the bridge script so the deployment does not require a separate
+`kubectl create configmap --from-file` step. After editing `hack/rtp-llm/kmonitor_bridge.py`, regenerate
+it from the repository root and commit both files:
+
+```sh
+{
+  echo '# Generated from hack/rtp-llm/kmonitor_bridge.py; do not edit the embedded script.'
+  echo '# Regeneration instructions: site-src/extending/rtp-llm-histograms.md.'
+  kubectl create configmap rtp-llm-bridge \
+    --from-file=hack/rtp-llm/kmonitor_bridge.py --dry-run=client -o yaml
+} > test/e2e/manifests/rtp-llm-histograms-configmap.yaml
 ```
 
 ## Validation

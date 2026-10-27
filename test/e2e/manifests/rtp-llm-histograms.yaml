@@ -1,6 +1,6 @@
 # Diagnostic native histograms; not a model-serving-signals contract endpoint.
 # Supply an RTP-LLM image with the latency histogram companions installed.
-# Create the rtp-llm-bridge ConfigMap using the guide first.
+# Apply rtp-llm-histograms-configmap.yaml alongside this Deployment.
 apiVersion: apps/v1
 kind: Deployment
 metadata:

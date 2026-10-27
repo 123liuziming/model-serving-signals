@@ -94,10 +94,17 @@ provides a single-GPU deployment with the engine and contract exporter. Prerequi
 - An exporter image built from this branch (`make image-build IMAGE=...`, then push
   or load it into the cluster). Image placeholders below must be replaced.
 
+The example uses a publicly pullable Linux amd64 runtime image from Alibaba Cloud ACK's
+US West registry; no registry login is required. Its tested digest is
+`sha256:de4451e85a9ba0e7b2ea250dc1e4227c122b6f77f8bf58ae6ad387bad9425d1c`.
+For a reproducible deployment, use
+`registry-us-west-1.ack.aliyuncs.com/acs/rtp-llm@sha256:de4451e85a9ba0e7b2ea250dc1e4227c122b6f77f8bf58ae6ad387bad9425d1c`.
+Model weights are mounted separately through the PVC.
+
 From the repository root:
 
 ```sh
-export RTP_LLM_IMAGE=your-registry/rtp-llm:tested-revision
+export RTP_LLM_IMAGE=registry-us-west-1.ack.aliyuncs.com/acs/rtp-llm:20261026-night
 export EXPORTER_IMAGE=your-registry/model-serving-signals:rtp-llm
 kubectl create namespace rtp-llm-test
 # Provision rtp-llm-model in this namespace before applying the deployment.

@@ -14,7 +14,8 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-package translator
+// Package rtpllm adapts RTP-LLM worker status into request gauges.
+package rtpllm
 
 import (
 	"context"
@@ -22,10 +23,13 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"net/http"
 	"strconv"
 
 	dto "github.com/prometheus/client_model/go"
 	"google.golang.org/protobuf/proto"
+
+	"sigs.k8s.io/model-serving-signals/pkg/translator/internal/httpmetrics"
 )
 
 const (
@@ -33,18 +37,23 @@ const (
 	rtpRequestsRunning = "rtp_llm_worker_status_requests_running"
 )
 
-// RTPWorkerStatus scrapes the RTP-LLM frontend's JSON /worker_status endpoint.
+// Scraper scrapes the RTP-LLM frontend's JSON /worker_status endpoint.
 // The C++ HTTP health endpoint with the same path does not contain task states.
-// HTTPScraper supplies the URL, optional client, and context-aware transport.
-type RTPWorkerStatus struct {
-	HTTPScraper
+type Scraper struct {
+	// URL is the frontend's worker-status endpoint.
+	URL string
+	// Client is the HTTP client to use; http.DefaultClient when nil.
+	Client *http.Client
 }
 
-var _ Scraper = (*RTPWorkerStatus)(nil)
+// New returns a scraper for http://host:port/path.
+func New(host string, port int, path string) *Scraper {
+	return &Scraper{URL: httpmetrics.URL(host, port, path)}
+}
 
 // Scrape derives per-DP request gauges from the frontend's task snapshots.
-func (s *RTPWorkerStatus) Scrape(ctx context.Context) (map[string]*dto.MetricFamily, error) {
-	return s.scrape(ctx, "application/json", parseRTPWorkerStatus)
+func (s *Scraper) Scrape(ctx context.Context) (map[string]*dto.MetricFamily, error) {
+	return httpmetrics.Scrape(ctx, s.URL, s.Client, "application/json", parseRTPWorkerStatus)
 }
 
 type rtpWorkerStatus struct {

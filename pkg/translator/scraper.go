@@ -19,15 +19,11 @@ package translator
 import (
 	"context"
 	"fmt"
-	"io"
-	"net"
-	"net/http"
-	"net/url"
-	"strconv"
 
 	dto "github.com/prometheus/client_model/go"
-	"github.com/prometheus/common/expfmt"
-	"github.com/prometheus/common/model"
+
+	"sigs.k8s.io/model-serving-signals/pkg/translator/prometheus"
+	"sigs.k8s.io/model-serving-signals/pkg/translator/rtpllm"
 )
 
 // ScraperKind identifies a supported engine metrics protocol.
@@ -41,12 +37,11 @@ const (
 // NewScraper constructs the profile-selected protocol adapter for http://host:port/path.
 // An empty kind defaults to Prometheus for profiles that omit the scraper field.
 func NewScraper(kind ScraperKind, host string, port int, path string) (Scraper, error) {
-	httpScraper := NewHTTPScraper(host, port, path)
 	switch kind {
 	case "", ScraperPrometheus:
-		return httpScraper, nil
+		return prometheus.New(host, port, path), nil
 	case ScraperRTPWorkerStatus:
-		return &RTPWorkerStatus{HTTPScraper: *httpScraper}, nil
+		return rtpllm.New(host, port, path), nil
 	default:
 		return nil, fmt.Errorf("unsupported scraper kind %q", kind)
 	}
@@ -57,61 +52,7 @@ type Scraper interface {
 	Scrape(ctx context.Context) (map[string]*dto.MetricFamily, error)
 }
 
-// HTTPScraper scrapes a Prometheus text exposition endpoint such as vLLM's or SGLang's /metrics.
-type HTTPScraper struct {
-	// URL is the engine's metrics endpoint, e.g. "http://localhost:8000/metrics".
-	URL string
-	// Client is the HTTP client to use; http.DefaultClient when nil.
-	Client *http.Client
-}
-
-var _ Scraper = (*HTTPScraper)(nil)
-
-// NewHTTPScraper returns an HTTP scraper for the metrics endpoint at http://host:port/path.
-func NewHTTPScraper(host string, port int, path string) *HTTPScraper {
-	u := url.URL{Scheme: "http", Host: net.JoinHostPort(host, strconv.Itoa(port)), Path: path}
-	return &HTTPScraper{URL: u.String()}
-}
-
-// Scrape fetches and parses the engine's metrics.
-func (h *HTTPScraper) Scrape(ctx context.Context) (map[string]*dto.MetricFamily, error) {
-	return h.scrape(ctx, string(expfmt.NewFormat(expfmt.TypeTextPlain)), parse)
-}
-
-func (h *HTTPScraper) scrape(ctx context.Context, accept string, decode func(io.Reader) (map[string]*dto.MetricFamily, error)) (map[string]*dto.MetricFamily, error) {
-	client := h.Client
-	if client == nil {
-		client = http.DefaultClient
-	}
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, h.URL, nil)
-	if err != nil {
-		return nil, fmt.Errorf("building scrape request for %s: %w", h.URL, err)
-	}
-	req.Header.Set("Accept", accept)
-
-	resp, err := client.Do(req)
-	if err != nil {
-		return nil, fmt.Errorf("scraping %s: %w", h.URL, err)
-	}
-	defer func() {
-		_, _ = io.Copy(io.Discard, resp.Body)
-		_ = resp.Body.Close()
-	}()
-	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("scraping %s: unexpected status %s", h.URL, resp.Status)
-	}
-
-	return decode(resp.Body)
-}
-
-// Parse decodes a Prometheus text exposition into metric families keyed by name.
-// Engine metric names such as "vllm:e2e_request_latency_seconds" contain colons, which are
-// legal under the legacy validation scheme, so UTF-8 validation is used to accept any engine's names.
-func parse(r io.Reader) (map[string]*dto.MetricFamily, error) {
-	parser := expfmt.NewTextParser(model.UTF8Validation)
-	families, err := parser.TextToMetricFamilies(r)
-	if err != nil {
-		return nil, fmt.Errorf("parsing engine metrics: %w", err)
-	}
-	return families, nil
-}
+var (
+	_ Scraper = (*prometheus.Scraper)(nil)
+	_ Scraper = (*rtpllm.Scraper)(nil)
+)

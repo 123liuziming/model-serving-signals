@@ -81,11 +81,20 @@ iterating on a mapping, or for engines not yet in the catalog.
 - The engine exposes a signal with an instrument type the translator does not re-emit yet. See
   [Adding a new signal](adding-a-signal.md), step 3.
 - The engine's metrics endpoint is not Prometheus text format. Implement the `translator.Scraper` interface in
+  a subpackage under
   [`pkg/translator/`](https://github.com/kubernetes-sigs/model-serving-signals/blob/main/pkg/translator/) and register its kind in `translator.NewScraper`. A scraper converts the
   source protocol into typed metric families; the translator does not require Prometheus input.
   See the [RTP-LLM JSON adapter](rtp-llm.md), selected by its profile's `scraper: rtp-llm-worker-status`,
   for an example. Keep the source semantics and units intact, and reject incomplete responses rather
   than turning missing data into zero load.
+
+Keep each protocol adapter and its tests in its own subdirectory: `prometheus/` is shared by engines
+with Prometheus endpoints, while `rtpllm/` handles RTP-LLM worker status. Adapter packages must not
+import the parent `translator` package; the parent owns the scraper interface, factory, and contract
+conversion. Shared HTTP transport lives in `internal/httpmetrics/`.
+
+Add an `OWNERS` file to an engine-specific directory to identify its reviewers and approvers, as in
+`pkg/translator/rtpllm/OWNERS`. Parent owners remain inherited unless explicitly disabled.
 
 ## Checklist
 

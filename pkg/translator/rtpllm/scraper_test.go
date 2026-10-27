@@ -14,7 +14,7 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-package translator
+package rtpllm_test
 
 import (
 	"context"
@@ -26,6 +26,8 @@ import (
 
 	"github.com/prometheus/client_golang/prometheus/testutil"
 	"sigs.k8s.io/model-serving-signals/pkg/profile"
+	"sigs.k8s.io/model-serving-signals/pkg/translator"
+	"sigs.k8s.io/model-serving-signals/pkg/translator/rtpllm"
 )
 
 // Source-shaped fixture, not a live capture: frontend GrpcClientWrapper's
@@ -59,12 +61,12 @@ func TestRTPWorkerStatusCollect(t *testing.T) {
 		_, _ = w.Write([]byte(rtpWorkerStatusFixture))
 	}))
 	defer srv.Close()
-	p, err := profile.Load("../../catalog/profiles/rtp-llm.yaml")
+	p, err := profile.Load("../../../catalog/profiles/rtp-llm.yaml")
 	if err != nil {
 		t.Fatal(err)
 	}
-	scraper := &RTPWorkerStatus{HTTPScraper: HTTPScraper{URL: srv.URL + "/worker_status"}}
-	collector, err := New(context.Background(), scraper, p, testScrapeTimeout)
+	scraper := &rtpllm.Scraper{URL: srv.URL + "/worker_status"}
+	collector, err := translator.New(context.Background(), scraper, p, 5*time.Second)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -104,7 +106,11 @@ func TestRTPWorkerStatusRejectsInvalidSnapshots(t *testing.T) {
 	}
 	for name, body := range tests {
 		t.Run(name, func(t *testing.T) {
-			families, err := parseRTPWorkerStatus(strings.NewReader(body))
+			srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+				_, _ = w.Write([]byte(body))
+			}))
+			defer srv.Close()
+			families, err := (&rtpllm.Scraper{URL: srv.URL}).Scrape(context.Background())
 			if err == nil || families != nil {
 				t.Fatalf("got families=%v, err=%v; want no metrics and an error", families, err)
 			}
@@ -118,7 +124,7 @@ func TestRTPWorkerStatusTransportFailures(t *testing.T) {
 			w.WriteHeader(http.StatusServiceUnavailable)
 		}))
 		defer srv.Close()
-		scraper := &RTPWorkerStatus{HTTPScraper: HTTPScraper{URL: srv.URL}}
+		scraper := &rtpllm.Scraper{URL: srv.URL}
 		if _, err := scraper.Scrape(context.Background()); err == nil {
 			t.Fatal("expected HTTP error")
 		}
@@ -130,7 +136,7 @@ func TestRTPWorkerStatusTransportFailures(t *testing.T) {
 		defer srv.Close()
 		ctx, cancel := context.WithTimeout(context.Background(), 50*time.Millisecond)
 		defer cancel()
-		scraper := &RTPWorkerStatus{HTTPScraper: HTTPScraper{URL: srv.URL}}
+		scraper := &rtpllm.Scraper{URL: srv.URL}
 		if _, err := scraper.Scrape(ctx); err == nil {
 			t.Fatal("expected deadline error")
 		}

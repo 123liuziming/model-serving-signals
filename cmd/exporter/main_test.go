@@ -30,11 +30,23 @@ import (
 	"sync/atomic"
 	"testing"
 	"time"
+
+	ctrl "sigs.k8s.io/controller-runtime"
+	"sigs.k8s.io/model-serving-signals/cmd/exporter/runner"
+	"sigs.k8s.io/model-serving-signals/pkg/translator"
 )
 
 // Exercise exporter main() in a subprocess: profile selection, HTTP wiring, and a failed
 // backend scrape must not turn the previous load into a fresh zero sample.
 func TestRTPExporterProcess(t *testing.T) {
+	for _, inject := range []bool{false, true} {
+		t.Run(fmt.Sprintf("injected=%t", inject), func(t *testing.T) {
+			testRTPExporterProcess(t, inject)
+		})
+	}
+}
+
+func testRTPExporterProcess(t *testing.T, inject bool) {
 	if testing.Short() {
 		t.Skip("subprocess integration")
 	}
@@ -72,9 +84,24 @@ func TestRTPExporterProcess(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
 	defer cancel()
 	args := []string{"--profile", "../../catalog/profiles/rtp-llm.yaml", "--engine-host", host, "--engine-metrics-port", enginePort, "--engine-metrics-path", "/worker_status", "--exporter-metrics-port", metricsPort}
+	if inject {
+		profilePath := filepath.Join(t.TempDir(), "custom.yaml")
+		data, err := os.ReadFile(args[1])
+		if err != nil {
+			t.Fatal(err)
+		}
+		data = []byte(strings.Replace(string(data), "scraper: rtp-llm-worker-status", "scraper: prometheus", 1))
+		if err := os.WriteFile(profilePath, data, 0600); err != nil {
+			t.Fatal(err)
+		}
+		args[1] = profilePath
+	}
 	helperArgs := append([]string{"-test.run=^TestExporterHelperProcess$", "--"}, args...)
 	cmd := exec.CommandContext(ctx, binary, helperArgs...)
 	cmd.Env = append(os.Environ(), "GO_WANT_EXPORTER_PROCESS=1")
+	if inject {
+		cmd.Env = append(cmd.Env, "GO_INJECT_RTP_SCRAPER=1")
+	}
 	logs, err := os.CreateTemp(t.TempDir(), "exporter-*.log")
 	if err != nil {
 		t.Fatal(err)
@@ -167,7 +194,20 @@ func TestExporterHelperProcess(t *testing.T) {
 	for i, arg := range os.Args {
 		if arg == "--" {
 			os.Args = append([]string{os.Args[0]}, os.Args[i+1:]...)
-			main()
+			if os.Getenv("GO_INJECT_RTP_SCRAPER") == "1" {
+				factory := func(host string, port int, path string) translator.Scraper {
+					scraper, err := translator.NewScraper(translator.ScraperRTPWorkerStatus, host, port, path)
+					if err != nil {
+						t.Fatal(err)
+					}
+					return scraper
+				}
+				if err := runner.NewRunner().WithScraperFactory(factory).Run(ctrl.SetupSignalHandler()); err != nil {
+					t.Fatal(err)
+				}
+			} else {
+				main()
+			}
 			return
 		}
 	}
